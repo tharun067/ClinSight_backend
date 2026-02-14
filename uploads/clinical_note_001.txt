@@ -1,0 +1,7 @@
+{
+  "WBC": 10.35,
+  "RBC": 5.52,
+  "Hemoglobin": 15.19,
+  "Platelets": 252.0,
+  "Creatinine": 1.2
+}

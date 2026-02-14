@@ -1,0 +1,166 @@
+{
+  "generated_at": "2026-01-31T20:19:04.036162",
+  "files": [
+    {
+      "id": "1b14c3f0-0c96-41e1-9edc-1dfabae39872",
+      "filename": "chest_xray_normal.png",
+      "path": "./uploads\\chest_xray_normal.png",
+      "size": 1709,
+      "type": "image"
+    },
+    {
+      "id": "8201f18d-8091-4955-b9b0-1a0ba434d3e5",
+      "filename": "chest_xray_pneumonia.png",
+      "path": "./uploads\\chest_xray_pneumonia.png",
+      "size": 2214,
+      "type": "image"
+    },
+    {
+      "id": "f5b48e13-aaab-40ec-a113-491368a0435d",
+      "filename": "chest_xray_effusion.png",
+      "path": "./uploads\\chest_xray_effusion.png",
+      "size": 1749,
+      "type": "image"
+    },
+    {
+      "id": "3fabd9e0-de9d-4989-a980-d176c37ce96e",
+      "filename": "clinical_note_001.txt",
+      "path": "./uploads\\clinical_note_001.txt",
+      "size": 536,
+      "type": "text"
+    },
+    {
+      "id": "7ce500c0-370a-4dfb-861e-a6f12d56cacd",
+      "filename": "clinical_note_002.txt",
+      "path": "./uploads\\clinical_note_002.txt",
+      "size": 543,
+      "type": "text"
+    },
+    {
+      "id": "5c63d0e4-8c89-4dcf-83b6-368067517311",
+      "filename": "clinical_note_003.txt",
+      "path": "./uploads\\clinical_note_003.txt",
+      "size": 512,
+      "type": "text"
+    },
+    {
+      "id": "0be92ab9-7389-4a57-9f38-db502550397d",
+      "filename": "lab_results_001.json",
+      "path": "./uploads\\lab_results_001.json",
+      "size": 308,
+      "type": "data"
+    },
+    {
+      "id": "772ef493-994b-45ba-b7d1-0506d5016658",
+      "filename": "lab_results_002.json",
+      "path": "./uploads\\lab_results_002.json",
+      "size": 309,
+      "type": "data"
+    },
+    {
+      "id": "b61dc45a-5021-4c46-bdff-7010064a6e9b",
+      "filename": "lab_results_003.json",
+      "path": "./uploads\\lab_results_003.json",
+      "size": 309,
+      "type": "data"
+    }
+  ],
+  "reports": [
+    {
+      "id": "0012c8e0-6197-459c-8a94-a72bb38c85f0",
+      "title": "Diagnostic Report 1",
+      "diagnosis": "Pneumonia",
+      "findings": "Mediastinal contours unremarkable",
+      "recommendations": "Recommend supportive care and monitoring",
+      "confidence_score": 0.81,
+      "created_at": "2026-01-31T20:19:04.033818",
+      "associated_file": {
+        "id": "1b14c3f0-0c96-41e1-9edc-1dfabae39872",
+        "filename": "chest_xray_normal.png",
+        "path": "./uploads\\chest_xray_normal.png",
+        "size": 1709,
+        "type": "image"
+      }
+    },
+    {
+      "id": "eadc2eee-e647-4d07-99a4-a8352ec79226",
+      "title": "Diagnostic Report 2",
+      "diagnosis": "Bronchitis",
+      "findings": "Bilateral infiltrates consistent with viral pneumonia",
+      "recommendations": "Consider CT chest for further evaluation",
+      "confidence_score": 0.75,
+      "created_at": "2026-01-31T20:19:04.034084",
+      "associated_file": {
+        "id": "8201f18d-8091-4955-b9b0-1a0ba434d3e5",
+        "filename": "chest_xray_pneumonia.png",
+        "path": "./uploads\\chest_xray_pneumonia.png",
+        "size": 2214,
+        "type": "image"
+      }
+    },
+    {
+      "id": "0fa9478c-43a9-442f-917a-99c4f6596f1b",
+      "title": "Diagnostic Report 3",
+      "diagnosis": "Bronchitis",
+      "findings": "Mediastinal contours unremarkable",
+      "recommendations": "Recommend supportive care and monitoring",
+      "confidence_score": 0.81,
+      "created_at": "2026-01-31T20:19:04.034250",
+      "associated_file": {
+        "id": "f5b48e13-aaab-40ec-a113-491368a0435d",
+        "filename": "chest_xray_effusion.png",
+        "path": "./uploads\\chest_xray_effusion.png",
+        "size": 1749,
+        "type": "image"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "953deaa9-0bc8-4729-9e3f-604dbdefbf25",
+      "source_type": "medical_literature",
+      "title": "COVID-19 Clinical Presentation Study",
+      "url": "https://example.com/covid-study-2024",
+      "relevance": 0.92,
+      "created_at": "2026-01-31T20:19:04.034653"
+    },
+    {
+      "id": "76e88d12-5c62-43ac-997f-5caf9af99936",
+      "source_type": "medical_literature",
+      "title": "Chest X-ray Interpretation Guidelines",
+      "url": "https://example.com/cxr-guidelines",
+      "relevance": 0.88,
+      "created_at": "2026-01-31T20:19:04.034874"
+    },
+    {
+      "id": "c915839b-407e-4546-bd3a-f0969c1f0ea9",
+      "source_type": "knowledge_base",
+      "title": "Pneumonia Classification Database",
+      "url": "https://example.com/pneumonia-db",
+      "relevance": 0.85,
+      "created_at": "2026-01-31T20:19:04.035012"
+    },
+    {
+      "id": "9cb2aae7-721c-4bb8-b65a-8f10ba4df711",
+      "source_type": "clinical_guideline",
+      "title": "IDSA Pneumonia Management Guidelines 2024",
+      "url": "https://example.com/idsa-pneumonia",
+      "relevance": 0.91,
+      "created_at": "2026-01-31T20:19:04.035294"
+    },
+    {
+      "id": "8cc66a69-b6b1-4d4b-9695-49a999954d86",
+      "source_type": "research_paper",
+      "title": "Deep Learning in Pulmonary Disease Detection",
+      "url": "https://example.com/dl-pulmonary",
+      "relevance": 0.87,
+      "created_at": "2026-01-31T20:19:04.035547"
+    }
+  ],
+  "statistics": {
+    "total_files": 9,
+    "total_reports": 3,
+    "total_sources": 5,
+    "total_data_size": 8189
+  }
+}

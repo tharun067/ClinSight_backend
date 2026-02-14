@@ -1,0 +1,21 @@
+
+PATIENT: Jane Smith
+DOB: 1958-07-22
+DATE: 2024-01-21
+
+CHIEF COMPLAINT: Shortness of breath
+
+HISTORY OF PRESENT ILLNESS:
+60-year-old female presenting with acute dyspnea for 3 days, orthopnea,
+and lower extremity edema. History of CHF. Recent medication non-compliance.
+
+VITAL SIGNS:
+- BP: 165/95 mmHg
+- HR: 112 bpm (irregular)
+- RR: 24
+- Temp: 36.8°C
+- SpO2: 91% on RA
+
+ASSESSMENT: Acute decompensated heart failure, possible atrial fibrillation.
+PLAN: Diuretics, ACE inhibitor adjustment, ECG, echo, troponin levels.
+    

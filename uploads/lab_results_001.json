@@ -1,0 +1,14 @@
+{
+  "patient_id": "df8cbc6a-879a-4a28-aa55-c01092c62592",
+  "test_date": "2026-01-31T20:19:04.030003",
+  "results": {
+    "WBC": 8.32,
+    "RBC": 5.48,
+    "Hemoglobin": 13.96,
+    "Platelets": 199.0,
+    "Creatinine": 1.19,
+    "Glucose": 86.38,
+    "Potassium": 4.76,
+    "Sodium": 143.0
+  }
+}

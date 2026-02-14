@@ -1,0 +1,21 @@
+
+PATIENT: Robert Johnson
+DOB: 1972-11-10
+DATE: 2024-01-22
+
+CHIEF COMPLAINT: Chest pain and cough
+
+HISTORY OF PRESENT ILLNESS:
+52-year-old male smoker with pleuritic chest pain, dry cough, and low-grade fever.
+Denies recent travel or sick contacts. Works in construction.
+
+VITAL SIGNS:
+- BP: 138/82 mmHg
+- HR: 88 bpm
+- RR: 18
+- Temp: 37.5°C
+- SpO2: 97% on RA
+
+ASSESSMENT: Pneumonia vs. pleurisy, occupational exposure history.
+PLAN: Chest imaging, CBC, CMP, consider occupational history.
+    
