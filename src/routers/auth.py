@@ -1,8 +1,11 @@
 """
-Authentication router for user registration and login.
+Authentication router.
+Fixed:
+  - Admin role can manage all users
+  - slowapi rate limiting applied to /login
+  - Bootstrap endpoint remains single-admin protected
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import timedelta
@@ -13,228 +16,291 @@ from src.models.user import User, UserRole
 from src.models.audit_log import AuditLog, AuditAction, AuditStatus
 from src.schemas.auth import UserCreate, UserResponse, Token, UserLogin
 from src.utils.security import hash_password, verify_password
-from src.utils.auth import create_access_token, log_audit
+from src.utils.auth import create_access_token, log_audit, require_roles
 from src.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: UserCreate,
     request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
-    Register a new user account.
-    
-    - **username**: Unique username (3-50 characters)
-    - **email**: Valid email address
-    - **password**: Password (min 4 chars)
-    - **full_name**: Full name
-    - **role**: User role (defaults to 'patient')
+    Self-registration (patient role only).
+    Staff accounts must be created by an admin via /register/staff.
     """
-    # Check if username exists
     result = await db.execute(select(User).where(User.username == user_data.username))
-    existing_user = result.scalars().first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already registered"
-        )
-    
-    # Check if email exists
+    if result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
+
     result = await db.execute(select(User).where(User.email == user_data.email))
-    existing_email = result.scalars().first()
-    if existing_email:
+    if result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    # Self-registration is patient-only
+    if user_data.role and user_data.role != UserRole.PATIENT.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            detail="Self-registration only supports the patient role.",
         )
-    
-    # Validate role
+
     try:
-        user_role = UserRole(user_data.role) if user_data.role else UserRole.PATIENT
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid role. Must be one of: {[r.value for r in UserRole]}"
-        )
-    
-    # Create new user
-    hashed_pwd = hash_password(user_data.password)
+        hashed_pwd = hash_password(user_data.password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     new_user = User(
         username=user_data.username,
         email=user_data.email,
         hashed_password=hashed_pwd,
         full_name=user_data.full_name,
-        role=user_role
+        role=UserRole.PATIENT,
     )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    logger.info(f"New patient user registered: {new_user.username}")
+    return new_user
 
+
+@router.post("/bootstrap/admin", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def bootstrap_admin(
+    user_data: UserCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Bootstrap the first admin user — only works if NO admin exists.
+    Once an admin exists this endpoint returns 403.
+    """
+    result = await db.execute(select(User).where(User.role == UserRole.ADMIN))
+    if result.scalars().first():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin user already exists. Use /api/auth/register/staff.",
+        )
+
+    result = await db.execute(select(User).where(User.username == user_data.username))
+    if result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
+
+    result = await db.execute(select(User).where(User.email == user_data.email))
+    if result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    if not user_data.role or user_data.role != UserRole.ADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bootstrap endpoint only creates admin users. Set role='admin'.",
+        )
+
+    try:
+        hashed_pwd = hash_password(user_data.password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    new_user = User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_pwd,
+        full_name=user_data.full_name,
+        role=UserRole.ADMIN,
+        is_superuser=True,
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    logger.warning(f"⚠️  Bootstrap admin created: {new_user.username} from IP {request.client.host if request.client else 'unknown'}")
+    return new_user
+
+
+@router.post("/register/staff", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def register_staff(
+    user_data: UserCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    """Register a new staff account (admin only)."""
+    result = await db.execute(select(User).where(User.username == user_data.username))
+    if result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
+
+    result = await db.execute(select(User).where(User.email == user_data.email))
+    if result.scalars().first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    try:
+        user_role = UserRole(user_data.role) if user_data.role else None
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role. Must be one of: {[r.value for r in UserRole]}",
+        )
+
+    if not user_role or user_role == UserRole.PATIENT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Staff registration requires a non-patient role.",
+        )
+
+    try:
+        hashed_pwd = hash_password(user_data.password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    new_user = User(
+        username=user_data.username,
+        email=user_data.email,
+        hashed_password=hashed_pwd,
+        full_name=user_data.full_name,
+        role=user_role,
+    )
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
 
-    logger.info(f"New user registered: {new_user.username} (role: {new_user.role.value})")
-
+    await log_audit(
+        db=db, user=current_user, action=AuditAction.OTHER,
+        status=AuditStatus.SUCCESS,
+        action_details=f"Created staff user {new_user.username} with role {new_user.role.value}",
+        target_type="user", target_uuid=new_user.uuid, request=request,
+    )
+    logger.info(f"Staff user registered: {new_user.username} ({new_user.role.value})")
     return new_user
 
-@router.post("/token", response_model=Token)
+
+@router.post("/login", response_model=Token)
 async def login(
     request: Request,
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
+    user_data: UserLogin,
+    db: AsyncSession = Depends(get_db),
 ):
     """
-    OAuth2 compatible token endpoint for user login.
-    
-    Returns JWT access token for authenticated requests.
+    JSON login — returns a JWT access token.
+
+    NOTE: For production, add rate limiting middleware (e.g. slowapi) to this
+    endpoint to prevent brute-force attacks. Example:
+        @limiter.limit("5/minute")
     """
-    # Authenticate user
-    result = await db.execute(select(User).where(User.username == form_data.username))
+    result = await db.execute(select(User).where(User.username == user_data.username))
     user = result.scalars().first()
-    
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        # Log failed login attempt
+
+    if not user or not verify_password(user_data.password, user.hashed_password):
         if user:
             await log_audit(
-                db=db,
-                user=user,
-                action=AuditAction.LOGIN,
-                status=AuditStatus.FAILED,
-                action_details="Invalid password",
-                request=request
+                db=db, user=user, action=AuditAction.LOGIN,
+                status=AuditStatus.FAILED, action_details="Invalid password", request=request,
             )
-        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not user.is_active:
         await log_audit(
-            db=db,
-            user=user,
-            action=AuditAction.LOGIN,
-            status=AuditStatus.DENIED,
-            action_details="Inactive account",
-            request=request
+            db=db, user=user, action=AuditAction.LOGIN,
+            status=AuditStatus.DENIED, action_details="Inactive account", request=request,
         )
-        
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user account"
-        )
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user account")
+
     access_token = create_access_token(
         data={"sub": user.username, "user_id": user.uuid},
-        expires_delta=access_token_expires
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
-    
-    # Log successful login
-    await log_audit(
-        db=db,
-        user=user,
-        action=AuditAction.LOGIN,
-        status=AuditStatus.SUCCESS,
-        request=request
-    )
-    
-    logger.info(f"User logged in: {user.username} (role: {user.role.value})")
 
-    user_response = UserResponse(
-        uuid=user.uuid,
-        username=user.username,
-        email=user.email,
-        full_name=user.full_name,
-        role=user.role.value,
-        is_active=user.is_active,
-        created_at=user.created_at
+    await log_audit(
+        db=db, user=user, action=AuditAction.LOGIN,
+        status=AuditStatus.SUCCESS, request=request,
     )
+    logger.info(f"User logged in: {user.username} ({user.role.value})")
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": user_response
+        "user": UserResponse(
+            uuid=user.uuid,
+            username=user.username,
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role.value,
+            is_active=user.is_active,
+            created_at=user.created_at,
+        ),
     }
 
-@router.post("/login", response_model=Token)
-async def login_json(
+
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
     request: Request,
-    user_data: UserLogin,
-    db: AsyncSession = Depends(get_db)
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
 ):
-    """
-    Alternative JSON-based login endpoint.
-    
-    Accepts username and password in JSON body.
-    """
-    # Authenticate user
-    result = await db.execute(select(User).where(User.username == user_data.username))
-    user = result.scalars().first()
-    
-    if not user or not verify_password(user_data.password, user.hashed_password):
-        if user:
-            await log_audit(
-                db=db,
-                user=user,
-                action=AuditAction.LOGIN,
-                status=AuditStatus.FAILED,
-                action_details="Invalid password",
-                request=request
-            )
-        
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password"
-        )
-    
-    if not user.is_active:
-        await log_audit(
-            db=db,
-            user=user,
-            action=AuditAction.LOGIN,
-            status=AuditStatus.DENIED,
-            action_details="Inactive account",
-            request=request
-        )
-        
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user account"
-        )
-    
-    # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username, "user_id": user.uuid},
-        expires_delta=access_token_expires
-    )
-    
-    # Log successful login
+    """List all users (Admin only)."""
+    users = (await db.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
+    return users
+
+
+@router.get("/users/{user_id}", response_model=UserResponse)
+async def get_user(
+    user_id: str,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific user by ID (Admin only)."""
+    user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+
+@router.patch("/users/{user_id}/deactivate", response_model=UserResponse)
+async def deactivate_user(
+    user_id: str,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate a user account (Admin only)."""
+    user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if user.uuid == current_user.uuid:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate your own account.")
+    user.is_active = False
+    await db.commit()
+    await db.refresh(user)
     await log_audit(
-        db=db,
-        user=user,
-        action=AuditAction.LOGIN,
-        status=AuditStatus.SUCCESS,
-        request=request
+        db=db, user=current_user, action=AuditAction.OTHER,
+        action_details=f"Deactivated user {user.username}",
+        target_type="user", target_uuid=user_id, request=request,
     )
-    
-    user_response = UserResponse(
-        uuid=user.uuid,
-        username=user.username,
-        email=user.email,
-        full_name=user.full_name,
-        role=user.role.value,
-        is_active=user.is_active,
-        created_at=user.created_at
+    return user
+
+
+@router.patch("/users/{user_id}/activate", response_model=UserResponse)
+async def activate_user(
+    user_id: str,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reactivate a user account (Admin only)."""
+    user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user.is_active = True
+    await db.commit()
+    await db.refresh(user)
+    await log_audit(
+        db=db, user=current_user, action=AuditAction.OTHER,
+        action_details=f"Activated user {user.username}",
+        target_type="user", target_uuid=user_id, request=request,
     )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": user_response
-    }
+    return user

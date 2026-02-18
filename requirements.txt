@@ -50,6 +50,10 @@ python-dateutil==2.9.0.post0
 pydicom==3.0.1
 opencv-python==4.10.0.84
 
+# Document processing
+PyMuPDF==1.24.5
+pytesseract==0.3.10
+
 # NLP
 spacy==3.8.2
 

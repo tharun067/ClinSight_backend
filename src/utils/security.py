@@ -1,42 +1,35 @@
 """
 Security utilities for password hashing and verification.
+Fixed: passwords over 72 bytes raise ValueError (bcrypt hard limit).
 """
 import bcrypt
+
 
 def hash_password(password: str) -> str:
     """
     Hash a plaintext password using bcrypt.
-    
-    Args:
-        password: Plaintext password
-        
-    Returns:
-        Hashed password string
+    Raises ValueError if password exceeds 72 bytes (bcrypt hard limit).
     """
-    password_bytes = password.encode('utf-8')
+    password_bytes = password.encode("utf-8")
     if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
-    
-    salt = bcrypt.gensalt()
+        raise ValueError(
+            "Password must not exceed 72 bytes when UTF-8 encoded. "
+            "Please use a shorter password."
+        )
+    salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
-    return hashed.decode('utf-8')
+    return hashed.decode("utf-8")
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a plaintext password against a hashed password.
-    
-    Args:
-        plain_password: Plaintext password
-        hashed_password: Hashed password
-        
-    Returns:
-        True if the password matches, False otherwise
+    Returns False on any error (including malformed hash).
     """
-    password_bytes = plain_password.encode('utf-8')
-    if len(password_bytes) > 72:
-        password_bytes = password_bytes[:72]
-    
     try:
-        return bcrypt.checkpw(password_bytes, hashed_password.encode('utf-8'))
+        password_bytes = plain_password.encode("utf-8")
+        if len(password_bytes) > 72:
+            return False
+        return bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
     except Exception:
         return False

@@ -1,27 +1,40 @@
 """
 Pydantic schemas for authentication.
+Fixed: password max_length 72 to match bcrypt hard limit.
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
+
 
 class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     full_name: str = Field(..., max_length=100)
 
+
 class UserCreate(UserBase):
     """Schema for user registration."""
-    password: str = Field(..., min_length=4, max_length=100)
-    role: Optional[str] = "patient"  # Default role
+    # max_length=72 matches bcrypt's hard limit on password bytes
+    password: str = Field(..., min_length=8, max_length=72)
+    role: Optional[str] = "patient"
+
+    @field_validator("password")
+    @classmethod
+    def password_must_not_exceed_bcrypt_limit(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError(
+                "Password must not exceed 72 bytes when UTF-8 encoded."
+            )
+        return v
+
 
 class UserLogin(BaseModel):
-    """Schema for user login."""
     username: str
     password: str
 
+
 class UserResponse(UserBase):
-    """Schema for user data in responses."""
     uuid: str
     role: str
     is_active: bool
@@ -30,13 +43,13 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
+
 class Token(BaseModel):
-    """JWT token response schema."""
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
 
+
 class TokenData(BaseModel):
-    """Data encoded in JWT token."""
     username: Optional[str] = None
     user_id: Optional[str] = None

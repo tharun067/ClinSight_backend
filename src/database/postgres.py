@@ -60,9 +60,6 @@ async def init_db() -> None:
         
         logger.info("Database initialized successfully.")
         
-        # Create default users
-        await create_default_users()
-        
     except Exception as e:
         logger.error(f"Error initializing database: {e}", exc_info=True)
         raise
@@ -120,79 +117,3 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
         finally:
             await session.close()
-
-async def create_default_users():
-    """Create default demo users for testing."""
-    from src.models import User, UserRole
-    from src.utils.security import hash_password
-    from sqlalchemy import select
-    
-    default_users = [
-        {
-            "username": "intake",
-            "email": "jane.smith@hospital.demo",
-            "full_name": "Jane Smith",
-            "password": "demo",
-            "role": UserRole.INTAKE
-        },
-        {
-            "username": "nurse",
-            "email": "maria.lopez@hospital.demo",
-            "full_name": "Maria Lopez",
-            "password": "demo",
-            "role": UserRole.NURSE
-        },
-        {
-            "username": "radiologist",
-            "email": "david.chen@hospital.demo",
-            "full_name": "David Chen",
-            "password": "demo",
-            "role": UserRole.RADIOLOGIST
-        },
-        {
-            "username": "physician",
-            "email": "sarah.williams@hospital.demo",
-            "full_name": "Sarah Williams",
-            "password": "demo",
-            "role": UserRole.PHYSICIAN
-        },
-        {
-            "username": "admin",
-            "email": "admin@hospital.demo",
-            "full_name": "Admin User",
-            "password": "demo",
-            "role": UserRole.ADMIN,
-            "is_superuser": True
-        },
-        {
-            "username": "compliance",
-            "email": "compliance@hospital.demo",
-            "full_name": "Audit User",
-            "password": "demo",
-            "role": UserRole.COMPLIANCE
-        }
-    ]
-    
-    async with AsyncSessionLocal() as session:
-        for user_data in default_users:
-            # Check if user already exists
-            result = await session.execute(
-                select(User).where(User.username == user_data["username"])
-            )
-            existing_user = result.scalars().first()
-            
-            if not existing_user:
-                hashed_pwd = hash_password(user_data["password"])
-                new_user = User(
-                    username=user_data["username"],
-                    email=user_data["email"],
-                    full_name=user_data["full_name"],
-                    hashed_password=hashed_pwd,
-                    role=user_data["role"],
-                    is_superuser=user_data.get("is_superuser", False),
-                    is_active=True
-                )
-                session.add(new_user)
-        
-        await session.commit()
-        logger.info("Default users created successfully.")
