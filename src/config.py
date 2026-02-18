@@ -34,9 +34,14 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = Field(..., description="PostgreSQL password")
     POSTGRES_DB: str = "clinsight_db"
+    
+    DATABASE_URL: str = Field(default="", description="Full database URL for production")
 
     @property
     def SQLALCHEMY_DATABASE_URL(self) -> str:
+        if self.DATABASE_URL:
+            return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+        
         return (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:"
             f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
