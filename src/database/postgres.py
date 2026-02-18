@@ -4,6 +4,8 @@ PostgreSQL async database connection and session management.
 from typing import AsyncGenerator
 import logging
 import asyncpg
+import os
+import ssl
 
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -17,6 +19,17 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+def build_ssl_context() -> ssl.SSLContext | None:
+    if not settings.POSTGRES_SSL_CA:
+        return None
+    ca_path = settings.POSTGRES_SSL_CA
+    if not os.path.isabs(ca_path):
+        ca_path = os.path.abspath(ca_path)
+    return ssl.create_default_context(cafile=ca_path)
+
+
+ssl_context = build_ssl_context()
+
 # async engine
 engine: AsyncEngine = create_async_engine(
     settings.SQLALCHEMY_DATABASE_URL,
@@ -24,6 +37,7 @@ engine: AsyncEngine = create_async_engine(
     pool_size=20,
     max_overflow=40,
     pool_pre_ping=True,
+    connect_args={"ssl": ssl_context} if ssl_context else {},
 )
 
 # async session factory
@@ -79,7 +93,8 @@ async def create_database_if_not_exists() -> None:
             password=settings.POSTGRES_PASSWORD,
             host=settings.POSTGRES_HOST,
             port=settings.POSTGRES_PORT,
-            database='postgres'
+            database='postgres',
+            ssl=ssl_context,
         )
         
         try:
