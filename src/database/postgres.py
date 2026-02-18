@@ -67,6 +67,12 @@ async def init_db() -> None:
 async def create_database_if_not_exists() -> None:
     """Create the database if it doesn't exist."""
     try:
+        if settings.DATABASE_URL:
+            logger.info(
+                "DATABASE_URL is set; skipping database creation step (managed service)."
+            )
+            return
+
         # Connect to the default 'postgres' database to create our database
         connection = await asyncpg.connect(
             user=settings.POSTGRES_USER,
