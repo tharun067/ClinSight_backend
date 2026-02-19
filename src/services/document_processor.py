@@ -198,7 +198,7 @@ class DocumentProcessor:
                     body_part=imaging_data.get("body_part"),
                     findings=imaging_data.get("findings"),
                     impression=imaging_data.get("impression"),
-                    status=ImagingStatus.COMPLETED,
+                    status=ImagingStatus.COMPLETE,
                     interpreted_by=user_uuid,
                 )
                 db.add(imaging)

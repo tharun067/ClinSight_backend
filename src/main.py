@@ -34,9 +34,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Startup failed: {e}", exc_info=True)
         raise
-
     yield
-
     logger.info("Shutting down")
     try:
         await close_embedding_service()
@@ -99,29 +97,16 @@ app.include_router(audit.router,      prefix="/api/audit",      tags=["Audit Log
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    return {
-        "status": "healthy",
-        "app": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-    }
+    return {"status": "healthy", "app": settings.APP_NAME, "version": settings.APP_VERSION}
 
 
 @app.get("/", tags=["Root"])
 async def root():
-    return {
-        "message": f"Welcome to {settings.APP_NAME}",
-        "version": settings.APP_VERSION,
-        "docs": "/api/docs",
-        "health": "/health",
-    }
+    return {"message": f"Welcome to {settings.APP_NAME}", "version": settings.APP_VERSION,
+            "docs": "/api/docs", "health": "/health"}
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower(),
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=8000,
+                reload=settings.DEBUG, log_level=settings.LOG_LEVEL.lower())

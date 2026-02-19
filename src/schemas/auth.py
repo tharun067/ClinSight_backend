@@ -1,6 +1,5 @@
 """
 Pydantic schemas for authentication.
-Fixed: password max_length 72 to match bcrypt hard limit.
 """
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
@@ -15,7 +14,6 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     """Schema for user registration."""
-    # max_length=72 matches bcrypt's hard limit on password bytes
     password: str = Field(..., min_length=8, max_length=72)
     role: Optional[str] = "patient"
 
@@ -23,9 +21,7 @@ class UserCreate(UserBase):
     @classmethod
     def password_must_not_exceed_bcrypt_limit(cls, v: str) -> str:
         if len(v.encode("utf-8")) > 72:
-            raise ValueError(
-                "Password must not exceed 72 bytes when UTF-8 encoded."
-            )
+            raise ValueError("Password must not exceed 72 bytes when UTF-8 encoded.")
         return v
 
 

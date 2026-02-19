@@ -68,7 +68,10 @@ async def link_patient_record(
     db: AsyncSession = Depends(get_db),
 ):
     """Link the current patient account to a medical record by MRN."""
-    if current_user.patient_record:
+    existing_link = (await db.execute(
+        select(Patient).where(Patient.user_uuid == current_user.uuid)
+    )).scalars().first()
+    if existing_link:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Your account is already linked to a patient record.",

@@ -1,262 +1,611 @@
-# Medical AI Diagnostic Reasoning System
+# ClinSight API Reference
 
-A production-ready, locally-deployed AI-powered diagnostic reasoning system combining FastAPI, PostgreSQL, Neo4j, Milvus, and Google Gemini for multi-modal medical data analysis.
+This README documents every API endpoint exposed by the ClinSight FastAPI backend, including request and response shapes, required roles, and query parameters.
 
-## 🏗️ Architecture Overview
+Base URL (local dev): http://localhost:8000
+Swagger UI: http://localhost:8000/api/docs
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      FastAPI Backend                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ Auth Service │  │ Preprocessing│  │   Gemini AI  │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└───────────┬────────────────┬────────────────┬───────────────┘
-            │                │                │
-   ┌────────▼────────┐  ┌───▼──────┐  ┌─────▼──────┐
-   │   PostgreSQL    │  │  Neo4j   │  │   Milvus   │
-   │  (Relational)   │  │ (Graph)  │  │  (Vector)  │
-   └─────────────────┘  └──────────┘  └────────────┘
-```
+Authentication
+- Most endpoints require a JWT access token. Provide it using the Authorization header:
+  Authorization: Bearer <access_token>
+- Role enforcement is done via server-side guards. If a role is not listed, access is denied.
 
-### Technology Stack
+Common response formats
+- Most endpoints return JSON. Validation errors return HTTP 422.
+- Resource not found returns HTTP 404. Access denied returns HTTP 403.
 
-- **Backend**: FastAPI 0.104+ (Python 3.11)
-- **Databases**:
-  - PostgreSQL 15 (relational data)
-  - Neo4j 5.13 (SNOMED CT knowledge graph)
-  - Milvus 2.3 (vector embeddings)
-- **AI/ML**:
-  - BioBERT (embedding generation)
-  - Google Gemini Pro Vision (multi-modal reasoning)
-  - spaCy + scispaCy (medical NLP)
-- **Infrastructure**: Docker Compose, Docker Desktop
+-------------------------------------------------------------------------------
+Root and Health
 
-## 🚀 Quick Start
+GET /
+- Description: Welcome message and links.
+- Auth: none.
+- Response:
+  {
+    "message": "Welcome to ClinSight - Medical Diagnosis Support System",
+    "version": "1.0.0",
+    "docs": "/api/docs",
+    "health": "/health"
+  }
 
-### Prerequisites
+GET /health
+- Description: Basic service health check.
+- Auth: none.
+- Response:
+  {
+    "status": "healthy",
+    "app": "ClinSight - Medical Diagnosis Support System",
+    "version": "1.0.0"
+  }
 
-- Docker Desktop (with at least 8GB RAM allocated)
-- Google Cloud API key with Gemini API enabled
-- SNOMED CT RF2 files (optional, for knowledge graph)
+Static uploads
+- Files saved to the uploads directory are served under /uploads.
+- Example: GET /uploads/<filename>
 
-### Installation
+-------------------------------------------------------------------------------
+Authentication (prefix: /api/auth)
 
-1. **Clone and Setup**:
-```bash
-git clone <repository>
-cd medical-ai-diagnostic
-```
+POST /api/auth/register
+- Description: Self-register a patient user.
+- Auth: none.
+- Body (UserCreate):
+  {
+    "username": "string (3-50)",
+    "email": "valid email",
+    "full_name": "string (max 100)",
+    "password": "string (8-72)",
+    "role": "patient"  // optional, must be patient
+  }
+- Response (UserResponse):
+  {
+    "uuid": "string",
+    "username": "string",
+    "email": "string",
+    "full_name": "string",
+    "role": "patient",
+    "is_active": true,
+    "created_at": "datetime"
+  }
 
-2. **Configure Environment**:
-```bash
-cp .env.example .env
-nano .env  # Edit with your credentials
-```
+POST /api/auth/bootstrap/admin
+- Description: Create the first admin account. Only works if no admin exists.
+- Auth: none.
+- Body: same as UserCreate, role must be "admin".
+- Response: UserResponse.
 
-Required environment variables:
-```bash
-# Security
-SECRET_KEY=<generate with: openssl rand -hex 32>
-GOOGLE_API_KEY=<your-google-api-key>
+POST /api/auth/register/staff
+- Description: Admin-only staff creation.
+- Auth: admin.
+- Body: UserCreate with role set to a non-patient role.
+- Response: UserResponse.
 
-# Database passwords
-POSTGRES_PASSWORD=<strong-password>
-NEO4J_PASSWORD=<strong-password>
-```
+POST /api/auth/login
+- Description: JSON login. Returns access token.
+- Auth: none.
+- Body (UserLogin):
+  {
+    "username": "string",
+    "password": "string"
+  }
+- Response (Token):
+  {
+    "access_token": "string",
+    "token_type": "bearer",
+    "user": { ...UserResponse }
+  }
 
-3. **Build and Start**:
-```bash
-chmod +x build.sh run.sh
-./build.sh  # One-time build
-./run.sh    # Start all services
-```
+GET /api/auth/users
+- Description: List all users.
+- Auth: admin.
+- Response: array of UserResponse.
 
-4. **Verify Installation**:
-```bash
-# Check all services are running
-docker-compose ps
+GET /api/auth/users/{user_id}
+- Description: Get a user by UUID.
+- Auth: admin.
+- Response: UserResponse.
 
-# Check backend health
-curl http://localhost:8000/health
-```
+-------------------------------------------------------------------------------
+Patients (prefix: /api/patients)
 
-## 📋 Service URLs
+GET /api/patients/my-record
+- Description: Patient portal - get the current user's own record.
+- Auth: patient.
+- Response: PatientResponse.
 
-| Service | URL | Description |
-|---------|-----|-------------|
-| API Documentation | http://localhost:8000/api/docs | Interactive Swagger UI |
-| Health Check | http://localhost:8000/health | Service status |
-| Neo4j Browser | http://localhost:7474 | Graph database UI |
-| PostgreSQL | localhost:5432 | Relational database |
-| Milvus | localhost:19530 | Vector database |
+POST /api/patients/link-my-record
+- Description: Patient portal - link account to an existing record by MRN.
+- Auth: patient.
+- Query params:
+  - mrn: string
+- Response:
+  { "message": "Patient record successfully linked", "patient_id": "uuid", "mrn": "MRN-12345" }
 
-## 🔧 Configuration
+POST /api/patients
+- Description: Create a patient record.
+- Auth: intake, admin.
+- Body (PatientCreate):
+  {
+    "full_name": "string",
+    "date_of_birth": "YYYY-MM-DD",
+    "gender": "string",
+    "phone": "string|null",
+    "address": "string|null",
+    "email": "string|null",
+    "visit_type": "string|null",
+    "chief_complaint": "string|null",
+    "visit_date": "datetime|null"
+  }
+- Response: PatientResponse.
 
-### Database Configuration
+GET /api/patients
+- Description: List patients with pagination and filters.
+- Auth: intake, nurse, radiologist, physician, admin, compliance.
+- Query params:
+  - page: int (default 1)
+  - page_size: int (default 10, max 100)
+  - search: string (matches name, MRN, or email)
+  - status_filter: string
+- Response (PatientListResponse):
+  { "patients": [PatientResponse], "total": int, "page": int, "page_size": int }
 
-**PostgreSQL** stores:
-- User accounts and authentication
-- File metadata and processing status
-- Generated reports and source attribution
+GET /api/patients/{patient_id}
+- Description: Get patient details by UUID.
+- Auth: intake, nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: PatientResponse.
 
-**Neo4j** stores:
-- SNOMED CT ontology (optional)
-- Medical concept relationships
-- Hierarchical disease classifications
+PUT /api/patients/{patient_id}
+- Description: Update a patient.
+- Auth: intake, nurse, physician, admin.
+- Body (PatientUpdate):
+  {
+    "full_name": "string|null",
+    "phone": "string|null",
+    "address": "string|null",
+    "email": "string|null",
+    "status": "string|null",
+    "chief_complaint": "string|null",
+    "visit_type": "string|null"
+  }
+- Response: PatientResponse.
 
-**Milvus** stores:
-- BioBERT embeddings (768-dim vectors)
-- Text chunk metadata
-- Similarity search indexes
+DELETE /api/patients/{patient_id}
+- Description: Delete a patient record.
+- Auth: admin.
+- Response: 204 No Content.
 
-### Model Configuration
+-------------------------------------------------------------------------------
+Documents (prefix: /api/documents)
 
-**BioBERT** (`dmis-lab/biobert-v1.1`):
-- Pre-trained on PubMed abstracts
-- 768-dimensional embeddings
-- Optimized for medical text
+POST /api/documents/upload
+- Description: Upload a document for a patient.
+- Auth: intake, nurse, physician, admin, patient (patients can only upload to their own record).
+- Body: multipart/form-data
+  - file: file
+  - patient_id: uuid
+  - document_type: string (must match a DocumentType enum value)
+  - notes: string (optional)
+- Response (DocumentUploadResponse):
+  {
+    "uuid": "string",
+    "filename": "string",
+    "document_type": "string",
+    "file_size": int,
+    "patient_id": "uuid",
+    "upload_date": "datetime"
+  }
 
-**Google Gemini Pro Vision**:
-- Multi-modal analysis (text + images)
-- Temperature: 0.3 (factual responses)
-- Max tokens: 2048
+POST /api/documents/bulk-upload
+- Description: Upload multiple documents for one patient.
+- Auth: intake, admin.
+- Body: multipart/form-data
+  - files: list of files
+  - patient_id: uuid
+  - document_types: comma-separated list matching each file
+- Response: array of DocumentUploadResponse.
 
-## 🔐 API Usage
+GET /api/documents
+- Description: List documents.
+- Auth: intake, nurse, radiologist, physician, admin, compliance, patient (self only).
+- Query params:
+  - patient_id: uuid (optional)
+  - document_type: string (optional)
+- Response: array of DocumentResponse.
 
-### Authentication
+GET /api/documents/my-documents
+- Description: Patient portal - list the patient's own documents.
+- Auth: patient.
+- Query params:
+  - document_type: string (optional)
+- Response: array of DocumentResponse.
 
-1. **Register a user**:
-```bash
-curl -X POST http://localhost:8000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "doctor1",
-    "email": "doctor1@hospital.com",
-    "password": "SecurePass123!",
-    "full_name": "Dr. Smith"
-  }'
-```
+GET /api/documents/{document_id}
+- Description: Get document metadata.
+- Auth: intake, nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: DocumentResponse.
 
-2. **Login and get token**:
-```bash
-curl -X POST http://localhost:8000/api/auth/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=doctor1&password=SecurePass123!"
-```
+GET /api/documents/{document_id}/download
+- Description: Download the physical file.
+- Auth: intake, nurse, radiologist, physician, admin, patient (self only).
+- Response: file download.
 
-Response:
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "token_type": "bearer"
-}
-```
+DELETE /api/documents/{document_id}
+- Description: Delete a document and its physical file.
+- Auth: intake, physician, admin.
+- Response: 204 No Content.
 
-### File Upload
+POST /api/documents/my-documents/upload
+- Description: Patient portal - upload a document to own record.
+- Auth: patient.
+- Body: multipart/form-data
+  - file: file
+  - document_type: string
+  - notes: string (optional)
+- Response: DocumentUploadResponse.
 
-```bash
-TOKEN="your_access_token_here"
+-------------------------------------------------------------------------------
+Clinical Notes (prefix: /api/notes)
 
-curl -X POST http://localhost:8000/api/files/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@chest_xray.dcm"
-```
+POST /api/notes
+- Description: Create a clinical note.
+- Auth: physician, nurse, admin.
+- Query params:
+  - patient_id: uuid
+- Body (ClinicalNoteCreate):
+  {
+    "title": "string",
+    "content": "string",
+    "note_type": "string|null",
+    "note_date": "datetime"
+  }
+- Response: ClinicalNoteResponse.
 
-### Generate Diagnostic Report
+GET /api/notes
+- Description: List notes with optional filters.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Query params:
+  - patient_id: uuid (optional)
+  - note_type: string (optional)
+- Response: array of ClinicalNoteResponse.
 
-```bash
-curl -X POST http://localhost:8000/api/reasoning/generate \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "Analyze chest X-ray findings and provide differential diagnosis for respiratory symptoms",
-    "file_ids": [1, 2],
-    "include_images": true,
-    "max_sources": 10
-  }'
-```
+GET /api/notes/patient/{patient_id}
+- Description: Get all notes for a patient.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: array of ClinicalNoteResponse.
 
-## 📁 Project Structure
+GET /api/notes/{note_id}
+- Description: Get a specific note by UUID.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: ClinicalNoteResponse.
 
-```
-medical-ai-diagnostic/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI application
-│   │   ├── config.py            # Configuration management
-│   │   ├── models/              # SQLAlchemy ORM models
-│   │   │   ├── user.py
-│   │   │   ├── file.py
-│   │   │   └── report.py
-│   │   ├── schemas/             # Pydantic schemas
-│   │   │   ├── auth.py
-│   │   │   ├── file.py
-│   │   │   └── report.py
-│   │   ├── routers/             # API endpoints
-│   │   │   ├── auth.py
-│   │   │   ├── files.py
-│   │   │   └── reasoning.py
-│   │   ├── services/            # Business logic
-│   │   │   ├── preprocessing.py # Multi-modal processing
-│   │   │   ├── vectorization.py # Embedding generation
-│   │   │   ├── retrieval.py     # Hybrid RAG
-│   │   │   └── gemini_service.py # Gemini integration
-│   │   ├── database/            # Database connections
-│   │   │   ├── postgres.py
-│   │   │   ├── neo4j_db.py
-│   │   │   └── vector_db.py
-│   │   └── utils/               # Utilities
-│   │       ├── auth.py          # JWT handling
-│   │       ├── security.py      # Password hashing
-│   │       └── logging_config.py
-│   ├── scripts/
-│   │   └── ingest_snomed.py     # SNOMED CT ingestion
-│   ├── tests/
-│   │   └── test_auth.py
-│   ├── Dockerfile
-│   └── requirements.txt
-├── data/                         # Persistent data (git-ignored)
-│   ├── postgres/
-│   ├── neo4j/
-│   ├── milvus/
-│   └── uploads/
-├── snomed/                       # SNOMED CT RF2 files
-├── docker-compose.yml
-├── .env
-├── build.sh
-├── run.sh
-└── README.md
-```
+PUT /api/notes/{note_id}
+- Description: Update a clinical note.
+- Auth: physician, nurse, admin (nurses can edit only their own notes).
+- Body: ClinicalNoteCreate.
+- Response: ClinicalNoteResponse.
 
-## 🧪 Testing
+DELETE /api/notes/{note_id}
+- Description: Delete a note.
+- Auth: physician, admin.
+- Response: 204 No Content.
 
-### Run Unit Tests
-```bash
-# From backend directory
-docker-compose exec backend pytest tests/ -m unit -v
-```
+POST /api/notes/{note_id}/summarize
+- Description: Generate an AI summary for a note.
+- Auth: physician, nurse, admin.
+- Query params:
+  - max_length: int (50-500, default 200)
+- Response:
+  {
+    "note_id": "uuid",
+    "original_title": "string",
+    "original_length": int,
+    "summary": "string",
+    "summary_length": int,
+    "model": "mixtral-8x7b-32768 (Groq)"
+  }
 
-### Run Integration Tests
-```bash
-docker-compose exec backend pytest tests/ -m integration -v
-```
+POST /api/notes/my-notes
+- Description: Patient portal - create a patient note.
+- Auth: patient.
+- Body: ClinicalNoteCreate.
+- Response: ClinicalNoteResponse.
 
-### Security Scanning
-```bash
-# Install OWASP ZAP
-# Run against local API
-docker run -t owasp/zap2docker-stable zap-baseline.py \
-  -t http://host.docker.internal:8000
-```
+GET /api/notes/my-notes
+- Description: Patient portal - list patient's own notes.
+- Auth: patient.
+- Query params:
+  - note_type: string (optional)
+- Response: array of ClinicalNoteResponse.
 
-### Load Testing
-```bash
-# Install Locust
-pip install locust
+-------------------------------------------------------------------------------
+Labs and Vitals (prefix: /api/labs)
 
-# Run load tests
-locust -f tests/locustfile.py --host=http://localhost:8000
-```
+Lab results
+
+POST /api/labs/labs
+- Description: Create a lab result.
+- Auth: nurse, physician, admin.
+- Query params:
+  - patient_id: uuid
+- Body (LabResultCreate):
+  {
+    "test_name": "string",
+    "test_value": number,
+    "unit": "string",
+    "test_date": "datetime",
+    "reference_range_low": number|null,
+    "reference_range_high": number|null,
+    "is_abnormal": "Normal|High|Low|null",
+    "notes": "string|null"
+  }
+- Response: LabResultResponse.
+
+GET /api/labs/labs
+- Description: List lab results.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Query params:
+  - patient_id: uuid (optional)
+  - test_name: string (optional)
+- Response: array of LabResultResponse.
+
+GET /api/labs/labs/patient/{patient_id}
+- Description: Get labs for a specific patient.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: array of LabResultResponse.
+
+GET /api/labs/labs/{lab_id}
+- Description: Get a lab result by UUID.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: LabResultResponse.
+
+PUT /api/labs/labs/{lab_id}
+- Description: Update a lab result.
+- Auth: nurse, physician, admin.
+- Body: LabResultCreate.
+- Response: LabResultResponse.
+
+DELETE /api/labs/labs/{lab_id}
+- Description: Delete a lab result.
+- Auth: physician, admin.
+- Response: 204 No Content.
+
+POST /api/labs/my-labs
+- Description: Patient portal - add an external lab result.
+- Auth: patient.
+- Body: LabResultCreate.
+- Response: LabResultResponse.
+
+GET /api/labs/my-labs
+- Description: Patient portal - list own lab results.
+- Auth: patient.
+- Response: array of LabResultResponse.
+
+Vital signs
+
+POST /api/labs/vitals
+- Description: Create a vital sign record (BMI auto-calculated).
+- Auth: nurse, physician, admin.
+- Query params:
+  - patient_id: uuid
+- Body (VitalSignCreate):
+  {
+    "measurement_date": "datetime",
+    "temperature": number|null,
+    "temperature_unit": "C|F",
+    "systolic_bp": number|null,
+    "diastolic_bp": number|null,
+    "heart_rate": number|null,
+    "respiratory_rate": number|null,
+    "oxygen_saturation": number|null,
+    "weight": number|null,
+    "height": number|null,
+    "notes": "string|null"
+  }
+- Response: VitalSignResponse.
+
+GET /api/labs/vitals
+- Description: List vital signs.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Query params:
+  - patient_id: uuid (optional)
+- Response: array of VitalSignResponse.
+
+GET /api/labs/vitals/patient/{patient_id}
+- Description: Get vitals for a specific patient.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: array of VitalSignResponse.
+
+GET /api/labs/vitals/latest/{patient_id}
+- Description: Get latest vitals for a patient.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: VitalSignResponse.
+
+DELETE /api/labs/vitals/{vitals_id}
+- Description: Delete a vital sign record.
+- Auth: nurse, physician, admin.
+- Response: 204 No Content.
+
+POST /api/labs/my-vitals
+- Description: Patient portal - add home vitals.
+- Auth: patient.
+- Body: VitalSignCreate.
+- Response: VitalSignResponse.
+
+GET /api/labs/my-vitals
+- Description: Patient portal - list home vitals.
+- Auth: patient.
+- Response: array of VitalSignResponse.
+
+-------------------------------------------------------------------------------
+Imaging Studies (prefix: /api/imaging)
+
+POST /api/imaging
+- Description: Create an imaging study.
+- Auth: nurse, radiologist, physician, admin.
+- Query params:
+  - patient_id: uuid
+- Body (ImagingStudyCreate):
+  {
+    "study_date": "datetime",
+    "modality": "X-ray|CT|MRI|Ultrasound|PET",
+    "body_part": "string",
+    "description": "string|null"
+  }
+- Response: ImagingStudyResponse.
+
+GET /api/imaging
+- Description: List imaging studies.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Query params:
+  - patient_id: uuid (optional)
+  - modality: string (optional)
+  - status_filter: string (optional)
+- Response: array of ImagingStudyResponse.
+
+GET /api/imaging/patient/{patient_id}
+- Description: Get imaging studies for a patient.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: array of ImagingStudyResponse.
+
+GET /api/imaging/{study_id}
+- Description: Get imaging study details.
+- Auth: nurse, radiologist, physician, admin, compliance, patient (self only).
+- Response: ImagingStudyResponse.
+
+PUT /api/imaging/{study_id}
+- Description: Update an imaging study.
+- Auth: radiologist, physician, admin.
+- Body (ImagingStudyUpdate):
+  {
+    "findings": "string|null",
+    "impression": "string|null",
+    "status": "string|null"
+  }
+- Response: ImagingStudyResponse.
+
+PUT /api/imaging/{study_id}/interpret
+- Description: Add radiologist interpretation.
+- Auth: radiologist, admin.
+- Body: ImagingStudyUpdate (findings, impression, status).
+- Response: ImagingStudyResponse.
+
+DELETE /api/imaging/{study_id}
+- Description: Delete an imaging study.
+- Auth: physician, admin.
+- Response: 204 No Content.
+
+-------------------------------------------------------------------------------
+AI Diagnostic Support (prefix: /api/diagnostic)
+
+POST /api/diagnostic/generate
+- Description: Generate an AI diagnostic report.
+- Auth: physician, admin.
+- Body (DiagnosticQuery):
+  {
+    "patient_id": "uuid",
+    "query": "string|null",
+    "clinical_notes": "string|null",
+    "include_images": true
+  }
+- Response (DiagnosticReportResponse):
+  {
+    "uuid": "string",
+    "title": "string|null",
+    "summary": "string",
+    "suggested_conditions": [ { "condition": "string", "confidence": number } ] | null,
+    "evidence_summary": "string|null",
+    "citations": [ { "source": "string", "snippet": "string" } ] | null,
+    "created_at": "datetime"
+  }
+
+GET /api/diagnostic/reports/{patient_id}
+- Description: List diagnostic reports for a patient.
+- Auth: physician, admin, patient (self only).
+- Response: array of DiagnosticReportResponse.
+
+GET /api/diagnostic/reports/detail/{report_id}
+- Description: Get a diagnostic report by UUID.
+- Auth: physician, admin, patient (self only).
+- Response: DiagnosticReportResponse.
+
+POST /api/diagnostic/analyze-image
+- Description: Analyze a single medical image using Gemini Vision.
+- Auth: physician, radiologist, admin.
+- Query params:
+  - image_path: string (server-accessible file path)
+  - query: string (optional)
+- Response:
+  { "image_path": "string", "analysis": "string", "model": "gemini-1.5-pro-vision" }
+
+POST /api/diagnostic/summarize-note
+- Description: Summarize a note using Groq.
+- Auth: physician, nurse, admin.
+- Query params:
+  - note_text: string
+  - max_length: int (default 200)
+- Response:
+  { "original_length": int, "summary_length": int, "summary": "string", "model": "mixtral-8x7b-32768" }
+
+POST /api/diagnostic/extract-entities
+- Description: Extract medical entities from text using Groq.
+- Auth: physician, nurse, admin.
+- Query params:
+  - text: string
+- Response:
+  { "text_length": int, "entities": [ ... ], "model": "mixtral-8x7b-32768" }
+
+GET /api/diagnostic/capabilities
+- Description: Describe available AI capabilities.
+- Auth: physician, admin.
+- Response: JSON describing models and features.
+
+-------------------------------------------------------------------------------
+Audit Logs (prefix: /api/audit)
+
+GET /api/audit
+- Description: Paginated audit log list with filters.
+- Auth: admin, compliance.
+- Query params:
+  - page: int (default 1)
+  - page_size: int (default 25, max 100)
+  - user_id: uuid (optional)
+  - patient_id: uuid (optional)
+  - action: string (optional)
+  - status: string (optional)
+- Response (AuditLogListResponse):
+  {
+    "logs": [AuditLogResponse],
+    "total": int,
+    "page": int,
+    "page_size": int,
+    "total_pages": int
+  }
+
+GET /api/audit/patient/{patient_id}
+- Description: Audit logs for a specific patient.
+- Auth: admin, compliance.
+- Query params:
+  - page: int (default 1)
+  - page_size: int (default 25)
+- Response: AuditLogListResponse.
+
+GET /api/audit/user/{user_id}
+- Description: Audit logs for a specific user.
+- Auth: admin, compliance.
+- Query params:
+  - page: int (default 1)
+  - page_size: int (default 25)
+- Response: AuditLogListResponse.
+
+GET /api/audit/{log_id}
+- Description: Get a single audit log entry by UUID.
+- Auth: admin, compliance.
+- Response: AuditLogResponse.
+
+GET /api/audit/actions/summary
+- Description: Count of audit actions grouped by action type.
+- Auth: admin, compliance.
+- Response:
+  { "summary": [ { "action": "string", "count": int } ] }
 
 ## 🔍 Monitoring & Debugging
 
