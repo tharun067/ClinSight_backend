@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = Field(..., description="PostgreSQL password")
     POSTGRES_DB: str = "clinsight_db"
-    POSTGRES_SSL_CA: str = Field(default="", description="PostgreSQL SSL CA cert path")
     
     DATABASE_URL: str = Field(default="", description="Full database URL for production")
 
