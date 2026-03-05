@@ -1,12 +1,25 @@
 """
-Main FastAPI application for ClinSight.
+ClinSight — FastAPI Application
+================================
+Entry point for the ClinSight backend.
+
+Run directly:
+    python -m src.main                        # defaults: 127.0.0.1:8000
+    python -m src.main --host 0.0.0.0         # bind to all interfaces
+    python -m src.main --port 8080
+    python -m src.main --reload               # auto-reload on code changes (dev)
+
+Or via uvicorn directly (equivalent):
+    uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+API docs available at /api/docs once running.
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-import logging, time, os
+import logging, time, os, traceback
 
 from src.config import settings
 from src.database.postgres import init_db, close_db
@@ -14,11 +27,29 @@ from src.database.vector_db import init_vector_db, close_vector_db
 from src.services.embedding import init_embedding_service, close_embedding_service
 from src.routers import auth, patients, diagnostic, documents, imaging, labs, notes, audit
 
+# Dev mode: set DEBUG=True in .env, or pass --reload flag, or set CLINSIGHT_DEV_MODE=1
+_DEV_MODE = os.environ.get("CLINSIGHT_DEV_MODE", "0") == "1" or settings.DEBUG
+
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# ── Silence noisy third-party loggers ────────────────────────────────────────
+for _noisy in (
+    "sqlalchemy.engine",
+    "sqlalchemy.engine.Engine",
+    "sqlalchemy.pool",
+    "sqlalchemy.dialects",
+    "sqlalchemy.orm",
+    "alembic",
+    "httpx",
+    "httpcore",
+    "multipart",
+    "passlib",
+):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
 @asynccontextmanager
@@ -75,7 +106,20 @@ async def log_requests(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error on {request.url.path}: {exc}", exc_info=True)
+    tb = traceback.format_exc()
+    logger.error(f"Unhandled error on {request.url.path}: {exc}\n{tb}")
+    # In dev mode return the real error + traceback for easier debugging.
+    # In production return a generic message to avoid leaking internals.
+    if _DEV_MODE:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": str(exc),
+                "type": type(exc).__name__,
+                "path": str(request.url.path),
+                "traceback": tb,
+            },
+        )
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error", "path": str(request.url.path)},
@@ -97,7 +141,28 @@ app.include_router(audit.router,      prefix="/api/audit",      tags=["Audit Log
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "healthy", "app": settings.APP_NAME, "version": settings.APP_VERSION}
+    return {"status": "healthy", "app": settings.APP_NAME, "version": settings.APP_VERSION,
+            "dev_mode": _DEV_MODE}
+
+
+@app.get("/api/debug/logs", tags=["Debug"])
+async def get_recent_logs(lines: int = 100):
+    """
+    Return the last N lines of clinsight_api.log.
+    Only available when CLINSIGHT_DEV_MODE=1 or DEBUG=True.
+    """
+    if not _DEV_MODE:
+        return JSONResponse(status_code=403, content={"detail": "Debug endpoint only available in dev mode. Run with --dev flag."})
+    log_path = "clinsight_api.log"
+    if not os.path.exists(log_path):
+        return {"lines": [], "message": "Log file not found (logs may be printing to terminal in dev mode)"}
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            all_lines = f.readlines()
+        recent = all_lines[-lines:]
+        return {"total_lines": len(all_lines), "showing": len(recent), "lines": [l.rstrip() for l in recent]}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": f"Could not read log file: {e}"})
 
 
 @app.get("/", tags=["Root"])
@@ -107,6 +172,25 @@ async def root():
 
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000,
-                reload=settings.DEBUG, log_level=settings.LOG_LEVEL.lower())
+
+    parser = argparse.ArgumentParser(description="ClinSight backend server")
+    parser.add_argument("--host",   default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    parser.add_argument("--port",   type=int, default=8000, help="Bind port (default: 8000)")
+    parser.add_argument("--reload", action="store_true", default=settings.DEBUG,
+                        help="Enable auto-reload on code changes (default: mirrors DEBUG setting)")
+    args = parser.parse_args()
+
+    print(f"\n  ⚕  ClinSight — {settings.APP_NAME} v{settings.APP_VERSION}")
+    print(f"  ⚙️  API      →  http://{args.host}:{args.port}")
+    print(f"  📖 Docs     →  http://{args.host}:{args.port}/api/docs")
+    print(f"  📖 ReDoc    →  http://{args.host}:{args.port}/api/redoc\n")
+
+    uvicorn.run(
+        "src.main:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level=settings.LOG_LEVEL.lower(),
+    )

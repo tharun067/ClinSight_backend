@@ -27,10 +27,10 @@ async def list_audit_logs(
     patient_id: Optional[str] = Query(None),
     action: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
-    current_user: User = Depends(require_roles("admin", "compliance")),
+    current_user: User = Depends(require_roles("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve paginated audit logs (Admin and Compliance only)."""
+    """Retrieve paginated audit logs (Admin only)."""
     query = select(AuditLog).options(selectinload(AuditLog.user))
     if user_id:
         query = query.where(AuditLog.user_uuid == user_id)
@@ -58,7 +58,7 @@ async def list_audit_logs(
 @router.get("/patient/{patient_id}", response_model=AuditLogListResponse)
 async def get_patient_audit_logs(patient_id: str, request: Request,
                                   page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100),
-                                  current_user: User = Depends(require_roles("admin", "compliance")),
+                                  current_user: User = Depends(require_roles("admin")),
                                   db: AsyncSession = Depends(get_db)):
     """Get audit log entries for a specific patient."""
     query = select(AuditLog).options(selectinload(AuditLog.user)).where(AuditLog.patient_uuid == patient_id)
@@ -75,7 +75,7 @@ async def get_patient_audit_logs(patient_id: str, request: Request,
 @router.get("/user/{user_id}", response_model=AuditLogListResponse)
 async def get_user_audit_logs(user_id: str, request: Request,
                                page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100),
-                               current_user: User = Depends(require_roles("admin", "compliance")),
+                               current_user: User = Depends(require_roles("admin")),
                                db: AsyncSession = Depends(get_db)):
     """Get all audit log entries for a specific user."""
     query = select(AuditLog).options(selectinload(AuditLog.user)).where(AuditLog.user_uuid == user_id)
@@ -88,7 +88,7 @@ async def get_user_audit_logs(user_id: str, request: Request,
 
 @router.get("/actions/summary")
 async def get_action_summary(request: Request,
-                              current_user: User = Depends(require_roles("admin", "compliance")),
+                              current_user: User = Depends(require_roles("admin")),
                               db: AsyncSession = Depends(get_db)):
     """Count breakdown of all audit actions — useful for compliance dashboards."""
     result = await db.execute(
@@ -100,7 +100,7 @@ async def get_action_summary(request: Request,
 
 @router.get("/{log_id}", response_model=AuditLogResponse)
 async def get_audit_log(log_id: str, request: Request,
-                         current_user: User = Depends(require_roles("admin", "compliance")),
+                         current_user: User = Depends(require_roles("admin")),
                          db: AsyncSession = Depends(get_db)):
     """Get a single audit log entry by UUID."""
     log = (await db.execute(

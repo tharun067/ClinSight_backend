@@ -101,8 +101,8 @@ class Settings(BaseSettings):
     ]
 
     ROLES: List[str] = [
-        "intake", "nurse", "radiologist", "physician",
-        "admin", "compliance", "patient",
+        "nurse", "physician",
+        "admin", "patient",
     ]
     PATIENT_STATUS: List[str] = ["Active", "Pending", "Discharged"]
     VISIT_TYPES: List[str] = ["Outpatient", "Emergency", "Inpatient"]

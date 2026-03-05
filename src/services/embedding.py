@@ -10,6 +10,7 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 from PIL import Image
 import numpy as np
+import warnings
 from typing import List, Union, Optional
 import logging
 
@@ -42,6 +43,17 @@ class EmbeddingService:
 
     def _init_image_model(self):
         try:
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Importing from timm\.models\.layers is deprecated.*",
+                category=FutureWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=r"You are using `torch\.load` with `weights_only=False`.*",
+                category=FutureWarning,
+                module=r"open_clip\.factory",
+            )
             import open_clip
             logger.info(f"Loading image model: {settings.IMAGE_EMBEDDING_MODEL}")
             model_name = f"hf-hub:{settings.IMAGE_EMBEDDING_MODEL}"

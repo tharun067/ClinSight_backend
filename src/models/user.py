@@ -1,5 +1,6 @@
 """
 User model with role-based access control for ClinSight.
+Roles: physician, admin, nurse, patient
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum
@@ -12,18 +13,16 @@ from src.database.postgres import Base
 
 class UserRole(str, Enum):
     """User role enumeration."""
-    INTAKE = "intake"
     NURSE = "nurse"
-    RADIOLOGIST = "radiologist"
     PHYSICIAN = "physician"
     ADMIN = "admin"
-    COMPLIANCE = "compliance"
     PATIENT = "patient"
 
 class User(Base):
     """
     User model for authentication and authorization.
-    Supports multiple healthcare roles with specific permissions.
+    Four roles: physician (view/update all), admin (full access),
+    nurse (add patients/reports), patient (own data only).
     """
     __tablename__ = "users"
 
@@ -33,25 +32,19 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=False)
     
-    # Role-based access control
     role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.PATIENT, index=True)
     
-    # Status flags
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     
-    # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True))
     
-    # Relationships
     uploaded_documents = relationship("Document", foreign_keys="[Document.uploaded_by]", back_populates="uploader")
     clinical_notes = relationship("ClinicalNote", back_populates="author")
     imaging_interpretations = relationship("ImagingStudy", foreign_keys="[ImagingStudy.interpreted_by]", back_populates="interpreter")
     audit_logs = relationship("AuditLog", back_populates="user")
-    
-    # Patient-specific relationship (for patient role users)
     patient_record = relationship("Patient", uselist=False, back_populates="user", cascade="all, delete-orphan", foreign_keys="[Patient.user_uuid]")
 
     def __repr__(self):
@@ -60,30 +53,35 @@ class User(Base):
     def has_permission(self, permission: str) -> bool:
         """Check if user has a specific permission based on their role."""
         role_permissions = {
-            UserRole.INTAKE: {
-                "register_patient", "upload_documents", "view_worklist"
-            },
             UserRole.NURSE: {
-                "view_worklist", "enter_labs", "enter_vitals", 
-                "view_clinical_notes", "view_patient_overview"
-            },
-            UserRole.RADIOLOGIST: {
-                "view_worklist", "review_imaging", "add_imaging_notes",
-                "view_patient_overview", "view_labs"
+                "register_patient", "add_patient", "view_worklist",
+                "enter_labs", "enter_vitals", "add_reports",
+                "view_clinical_notes", "view_patient_overview",
+                "upload_documents", "view_imaging", "add_clinical_notes",
             },
             UserRole.PHYSICIAN: {
-                "view_worklist", "view_patient_overview", "diagnostic_support",
-                "view_imaging", "view_labs", "view_clinical_notes", "add_clinical_notes"
+                "view_worklist", "view_patient_overview", "view_all_patients",
+                "update_patient_records", "diagnostic_support",
+                "view_imaging", "view_labs", "view_clinical_notes",
+                "add_clinical_notes", "update_clinical_notes",
+                "delete_clinical_notes", "delete_labs", "delete_imaging",
             },
             UserRole.ADMIN: {
-                "view_audit_logs", "manage_users", "view_system_stats"
-            },
-            UserRole.COMPLIANCE: {
-                "view_audit_logs", "view_system_overview"
+                "view_audit_logs", "manage_users", "view_system_stats",
+                "register_patient", "add_patient", "view_worklist",
+                "enter_labs", "enter_vitals", "add_reports",
+                "view_clinical_notes", "view_patient_overview",
+                "upload_documents", "view_imaging", "view_all_patients",
+                "update_patient_records", "diagnostic_support",
+                "view_labs", "add_clinical_notes", "update_clinical_notes",
+                "delete_clinical_notes", "delete_labs", "delete_imaging",
+                "delete_patients", "delete_documents",
             },
             UserRole.PATIENT: {
-                "view_own_record", "update_profile"
-            }
+                "view_own_record", "add_own_records", "update_own_profile",
+                "upload_own_documents", "view_own_labs", "view_own_vitals",
+                "add_own_labs", "add_own_vitals", "add_own_notes",
+                "view_own_imaging",
+            },
         }
-        
         return permission in role_permissions.get(self.role, set())

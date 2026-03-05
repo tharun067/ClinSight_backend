@@ -1,5 +1,8 @@
 """
-Authentication router — self-registration, staff registration, login, user management.
+Authentication router — registration, login, user management.
+Roles: physician, admin, nurse, patient
+- Public: self-registration (patient only), bootstrap admin, login
+- Admin only: register staff, list/get/activate/deactivate users
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,10 +21,12 @@ from src.config import settings
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+ALLOWED_STAFF_ROLES = {UserRole.PHYSICIAN, UserRole.NURSE, UserRole.ADMIN}
+
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate, request: Request, db: AsyncSession = Depends(get_db)):
-    """Self-registration (patient role only)."""
+    """Self-registration — patient role only."""
     if (await db.execute(select(User).where(User.username == user_data.username))).scalars().first():
         raise HTTPException(status_code=400, detail="Username already registered")
     if (await db.execute(select(User).where(User.email == user_data.email))).scalars().first():
@@ -32,18 +37,20 @@ async def register(user_data: UserCreate, request: Request, db: AsyncSession = D
         hashed_pwd = hash_password(user_data.password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    new_user = User(username=user_data.username, email=user_data.email, hashed_password=hashed_pwd,
-                    full_name=user_data.full_name, role=UserRole.PATIENT)
+    new_user = User(
+        username=user_data.username, email=user_data.email,
+        hashed_password=hashed_pwd, full_name=user_data.full_name, role=UserRole.PATIENT,
+    )
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
-    logger.info(f"New patient user registered: {new_user.username}")
+    logger.info(f"New patient registered: {new_user.username}")
     return new_user
 
 
 @router.post("/bootstrap/admin", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def bootstrap_admin(user_data: UserCreate, request: Request, db: AsyncSession = Depends(get_db)):
-    """Bootstrap first admin — only works if NO admin exists."""
+    """Bootstrap first admin — only works if NO admin exists yet."""
     if (await db.execute(select(User).where(User.role == UserRole.ADMIN))).scalars().first():
         raise HTTPException(status_code=403, detail="Admin already exists. Use /api/auth/register/staff.")
     if (await db.execute(select(User).where(User.username == user_data.username))).scalars().first():
@@ -56,8 +63,11 @@ async def bootstrap_admin(user_data: UserCreate, request: Request, db: AsyncSess
         hashed_pwd = hash_password(user_data.password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    new_user = User(username=user_data.username, email=user_data.email, hashed_password=hashed_pwd,
-                    full_name=user_data.full_name, role=UserRole.ADMIN, is_superuser=True)
+    new_user = User(
+        username=user_data.username, email=user_data.email,
+        hashed_password=hashed_pwd, full_name=user_data.full_name,
+        role=UserRole.ADMIN, is_superuser=True,
+    )
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
@@ -66,10 +76,12 @@ async def bootstrap_admin(user_data: UserCreate, request: Request, db: AsyncSess
 
 
 @router.post("/register/staff", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register_staff(user_data: UserCreate, request: Request,
-                         db: AsyncSession = Depends(get_db),
-                         current_user: User = Depends(require_roles("admin"))):
-    """Register staff account (admin only)."""
+async def register_staff(
+    user_data: UserCreate, request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    """Register a staff account (admin only). Allowed roles: physician, nurse, admin."""
     if (await db.execute(select(User).where(User.username == user_data.username))).scalars().first():
         raise HTTPException(status_code=400, detail="Username already registered")
     if (await db.execute(select(User).where(User.email == user_data.email))).scalars().first():
@@ -77,21 +89,31 @@ async def register_staff(user_data: UserCreate, request: Request,
     try:
         user_role = UserRole(user_data.role) if user_data.role else None
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {[r.value for r in UserRole]}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role. Allowed staff roles: {[r.value for r in ALLOWED_STAFF_ROLES]}",
+        )
     if not user_role or user_role == UserRole.PATIENT:
-        raise HTTPException(status_code=400, detail="Staff registration requires a non-patient role.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Staff registration requires a non-patient role. Choose from: {[r.value for r in ALLOWED_STAFF_ROLES]}",
+        )
     try:
         hashed_pwd = hash_password(user_data.password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    new_user = User(username=user_data.username, email=user_data.email, hashed_password=hashed_pwd,
-                    full_name=user_data.full_name, role=user_role)
+    new_user = User(
+        username=user_data.username, email=user_data.email,
+        hashed_password=hashed_pwd, full_name=user_data.full_name, role=user_role,
+    )
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
-    await log_audit(db=db, user=current_user, action=AuditAction.OTHER, status=AuditStatus.SUCCESS,
-                    action_details=f"Created staff user {new_user.username} with role {new_user.role.value}",
-                    target_type="user", target_uuid=new_user.uuid, request=request)
+    await log_audit(
+        db=db, user=current_user, action=AuditAction.OTHER, status=AuditStatus.SUCCESS,
+        action_details=f"Created staff user {new_user.username} with role {new_user.role.value}",
+        target_type="user", target_uuid=new_user.uuid, request=request,
+    )
     logger.info(f"Staff user registered: {new_user.username} ({new_user.role.value})")
     return new_user
 
@@ -120,33 +142,76 @@ async def login(request: Request, user_data: UserLogin, db: AsyncSession = Depen
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(uuid=user.uuid, username=user.username, email=user.email,
-                             full_name=user.full_name, role=user.role.value,
-                             is_active=user.is_active, created_at=user.created_at),
+        "user": UserResponse(
+            uuid=user.uuid, username=user.username, email=user.email,
+            full_name=user.full_name, role=user.role.value,
+            is_active=user.is_active, created_at=user.created_at,
+        ),
     }
 
 
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(require_roles("physician", "admin", "nurse", "patient"))):
+    """Get current authenticated user's profile."""
+    return current_user
+
+
 @router.get("/users", response_model=list[UserResponse])
-async def list_users(request: Request, current_user: User = Depends(require_roles("admin")),
-                     db: AsyncSession = Depends(get_db)):
+async def list_users(
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
     """List all users (Admin only)."""
     return (await db.execute(select(User).order_by(User.created_at.desc()))).scalars().all()
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
-async def get_user(user_id: str, request: Request, current_user: User = Depends(require_roles("admin")),
-                   db: AsyncSession = Depends(get_db)):
-    """Get a specific user by ID (Admin only)."""
+async def get_user(
+    user_id: str, request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific user by UUID (Admin only)."""
     user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
+@router.patch("/users/{user_id}/role", response_model=UserResponse)
+async def update_user_role(
+    user_id: str, request: Request,
+    new_role: str,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a user's role (Admin only). Allowed roles: physician, nurse, admin, patient."""
+    user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        role = UserRole(new_role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Allowed: {[r.value for r in UserRole]}")
+    old_role = user.role.value
+    user.role = role
+    await db.commit()
+    await db.refresh(user)
+    await log_audit(
+        db=db, user=current_user, action=AuditAction.OTHER,
+        action_details=f"Changed role of {user.username} from {old_role} to {role.value}",
+        target_type="user", target_uuid=user_id, request=request,
+    )
+    return user
+
+
 @router.patch("/users/{user_id}/deactivate", response_model=UserResponse)
-async def deactivate_user(user_id: str, request: Request,
-                          current_user: User = Depends(require_roles("admin")),
-                          db: AsyncSession = Depends(get_db)):
+async def deactivate_user(
+    user_id: str, request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
     """Deactivate a user account (Admin only)."""
     user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
     if not user:
@@ -156,16 +221,20 @@ async def deactivate_user(user_id: str, request: Request,
     user.is_active = False
     await db.commit()
     await db.refresh(user)
-    await log_audit(db=db, user=current_user, action=AuditAction.OTHER,
-                    action_details=f"Deactivated user {user.username}",
-                    target_type="user", target_uuid=user_id, request=request)
+    await log_audit(
+        db=db, user=current_user, action=AuditAction.OTHER,
+        action_details=f"Deactivated user {user.username}",
+        target_type="user", target_uuid=user_id, request=request,
+    )
     return user
 
 
 @router.patch("/users/{user_id}/activate", response_model=UserResponse)
-async def activate_user(user_id: str, request: Request,
-                        current_user: User = Depends(require_roles("admin")),
-                        db: AsyncSession = Depends(get_db)):
+async def activate_user(
+    user_id: str, request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
     """Reactivate a user account (Admin only)."""
     user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
     if not user:
@@ -173,7 +242,30 @@ async def activate_user(user_id: str, request: Request,
     user.is_active = True
     await db.commit()
     await db.refresh(user)
-    await log_audit(db=db, user=current_user, action=AuditAction.OTHER,
-                    action_details=f"Activated user {user.username}",
-                    target_type="user", target_uuid=user_id, request=request)
+    await log_audit(
+        db=db, user=current_user, action=AuditAction.OTHER,
+        action_details=f"Activated user {user.username}",
+        target_type="user", target_uuid=user_id, request=request,
+    )
     return user
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str, request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete a user account (Admin only)."""
+    user = (await db.execute(select(User).where(User.uuid == user_id))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.uuid == current_user.uuid:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account.")
+    await db.delete(user)
+    await db.commit()
+    await log_audit(
+        db=db, user=current_user, action=AuditAction.OTHER,
+        action_details=f"Deleted user {user.username} (role: {user.role.value})",
+        target_type="user", target_uuid=user_id, request=request,
+    )

@@ -49,7 +49,7 @@ async def reset_database():
             enum_types = [
                 'userrole', 'patientstatus', 'visittype', 'gender',
                 'imagingmodality', 'imagingstatus', 'documenttype',
-                'auditaction', 'auditstatus'
+                'extractionstatus', 'auditaction', 'auditstatus'
             ]
             for enum_type in enum_types:
                 try:

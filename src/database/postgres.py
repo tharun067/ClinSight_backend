@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # async engine
 engine: AsyncEngine = create_async_engine(
     settings.SQLALCHEMY_DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=False,
     pool_size=20,
     max_overflow=40,
     pool_pre_ping=True,
@@ -67,11 +67,11 @@ async def init_db() -> None:
 async def create_database_if_not_exists() -> None:
     """Create the database if it doesn't exist."""
     try:
-        if settings.DATABASE_URL:
-            logger.info(
-                "DATABASE_URL is set; skipping database creation step (managed service)."
-            )
-            return
+        # if settings.DATABASE_URL:
+        #     logger.info(
+        #         "DATABASE_URL is set; skipping database creation step (managed service)."
+        #     )
+        #     return
 
         # Connect to the default 'postgres' database to create our database
         connection = await asyncpg.connect(

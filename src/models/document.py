@@ -1,7 +1,8 @@
 """
 Document ORM model for patient file uploads.
+Includes AI extraction status and results tracking.
 """
-from sqlalchemy import Column, String, DateTime, ForeignKey, BigInteger, Text, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, ForeignKey, BigInteger, Text, Enum as SQLEnum, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from enum import Enum
@@ -22,6 +23,14 @@ class DocumentType(str, Enum):
     OTHER = "Other"
 
 
+class ExtractionStatus(str, Enum):
+    NOT_STARTED = "not_started"       # File type not supported for extraction
+    PENDING = "pending"               # Queued, background task not yet run
+    PROCESSING = "processing"         # Actively being processed
+    COMPLETED = "completed"           # Extraction succeeded (even if 0 items found)
+    FAILED = "failed"                 # Extraction error
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -37,16 +46,32 @@ class Document(Base):
     upload_date = Column(DateTime(timezone=True), server_default=func.now())
     notes = Column(Text)
 
+    # AI Extraction tracking
+    extraction_status = Column(
+        SQLEnum(ExtractionStatus),
+        default=ExtractionStatus.NOT_STARTED,
+        nullable=False,
+        index=True,
+    )
+    extraction_started_at = Column(DateTime(timezone=True))
+    extraction_completed_at = Column(DateTime(timezone=True))
+    extraction_error = Column(Text)           # Error message if failed
+
+    # Extraction results summary (JSON)
+    # Example:
+    # {
+    #   "labs_extracted": 5,
+    #   "vitals_extracted": 1,
+    #   "imaging_extracted": 1,
+    #   "lab_ids": ["uuid1", "uuid2", ...],
+    #   "vital_ids": ["uuid3"],
+    #   "imaging_ids": ["uuid4"],
+    #   "raw_text_length": 3200
+    # }
+    extraction_results = Column(JSON)
+
     patient = relationship("Patient", back_populates="documents")
     uploader = relationship("User", foreign_keys=[uploaded_by], back_populates="uploaded_documents")
 
     def __repr__(self):
-        return f"<Document(uuid={self.uuid}, type={self.document_type.value})>"
-
-    def to_dict(self):
-        return {
-            "id": self.uuid, "filename": self.original_filename,
-            "document_type": self.document_type.value, "file_size": self.file_size,
-            "upload_date": self.upload_date.isoformat() if self.upload_date else None,
-            "patient_id": self.patient_uuid, "notes": self.notes,
-        }
+        return f"<Document(uuid={self.uuid}, type={self.document_type.value}, extraction={self.extraction_status.value})>"
