@@ -1,7 +1,3 @@
-"""
-Groq API service for fast, cost-effective LLM inference.
-Alternative to Gemini for text-only tasks to reduce token usage.
-"""
 import httpx
 from typing import List, Dict, Any, Optional
 import logging

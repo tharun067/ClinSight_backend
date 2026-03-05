@@ -1,19 +1,3 @@
-"""
-ClinSight — FastAPI Application
-================================
-Entry point for the ClinSight backend.
-
-Run directly:
-    python -m src.main                        # defaults: 127.0.0.1:8000
-    python -m src.main --host 0.0.0.0         # bind to all interfaces
-    python -m src.main --port 8080
-    python -m src.main --reload               # auto-reload on code changes (dev)
-
-Or via uvicorn directly (equivalent):
-    uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-
-API docs available at /api/docs once running.
-"""
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,7 +8,7 @@ import logging, time, os, traceback
 from src.config import settings
 from src.database.postgres import init_db, close_db
 from src.database.vector_db import init_vector_db, close_vector_db
-from src.services.embedding import init_embedding_service, close_embedding_service
+from src.services.embedding import init_embedding_service, close_embedding_service, ServiceNotReadyError
 from src.routers import auth, patients, diagnostic, documents, imaging, labs, notes, audit
 
 # Dev mode: set DEBUG=True in .env, or pass --reload flag, or set CLINSIGHT_DEV_MODE=1
@@ -36,7 +20,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Silence noisy third-party loggers ────────────────────────────────────────
 for _noisy in (
     "sqlalchemy.engine",
     "sqlalchemy.engine.Engine",
@@ -52,6 +35,15 @@ for _noisy in (
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 
+async def _load_models_background():
+    """Load heavy ML models after server is already listening on the port."""
+    try:
+        await init_embedding_service()
+        logger.info("Embedding service initialized")
+    except Exception as e:
+        logger.error(f"Background model loading failed: {e}", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
@@ -60,8 +52,9 @@ async def lifespan(app: FastAPI):
         logger.info("PostgreSQL initialized")
         await init_vector_db()
         logger.info("FAISS vector DB initialized")
-        await init_embedding_service()
-        logger.info("Embedding service initialized")
+        import asyncio as _asyncio
+        _asyncio.create_task(_load_models_background())
+        logger.info("Model loading started in background")
     except Exception as e:
         logger.error(f"Startup failed: {e}", exc_info=True)
         raise
@@ -104,22 +97,19 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+@app.exception_handler(ServiceNotReadyError)
+async def service_not_ready_handler(request: Request, exc: ServiceNotReadyError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+        headers={"Retry-After": "10"},
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logger.error(f"Unhandled error on {request.url.path}: {exc}\n{tb}")
-    # In dev mode return the real error + traceback for easier debugging.
-    # In production return a generic message to avoid leaking internals.
-    if _DEV_MODE:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "detail": str(exc),
-                "type": type(exc).__name__,
-                "path": str(request.url.path),
-                "traceback": tb,
-            },
-        )
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal Server Error", "path": str(request.url.path)},

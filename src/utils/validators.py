@@ -1,6 +1,3 @@
-"""
-Validation utilities for API inputs.
-"""
 import uuid
 from fastapi import HTTPException, status
 

@@ -1,9 +1,3 @@
-"""
-Document processing service for automatic AI data extraction.
-Extracts lab results, vitals, and imaging data from uploaded PDFs and images.
-Updates Document.extraction_status and extraction_results so callers can
-poll GET /api/documents/{id}/extraction-status to see what was found.
-"""
 import asyncio
 import json
 import logging

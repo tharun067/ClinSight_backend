@@ -1,10 +1,3 @@
-"""
-Multi-modal embedding service.
-Fixed:
-  - Image embedding fallback uses settings.VECTOR_DIMENSION (not hardcoded 512)
-    to prevent FAISS dimension mismatch crashes.
-  - Graceful fallback zero-vectors match the configured dimension.
-"""
 import asyncio
 import torch
 from transformers import AutoTokenizer, AutoModel
@@ -17,6 +10,11 @@ import logging
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class ServiceNotReadyError(RuntimeError):
+    """Raised when a request arrives before background model loading completes."""
+    pass
 
 
 class EmbeddingService:
@@ -165,7 +163,10 @@ _embedding_service: Optional[EmbeddingService] = None
 def get_embedding_service() -> EmbeddingService:
     global _embedding_service
     if _embedding_service is None:
-        _embedding_service = EmbeddingService()
+        raise ServiceNotReadyError(
+            "Embedding service is not ready yet. "
+            "Models are still loading in the background — please retry in a moment."
+        )
     return _embedding_service
 
 

@@ -1,8 +1,3 @@
-"""
-JWT authentication utilities and dependency injection with audit logging.
-Fixed: admin is treated as superuser with access to all roles' routes.
-"""
-
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt

@@ -1,9 +1,3 @@
-"""
-Hybrid retrieval service.
-Fixed:
-  - _build_context() separator string bug (was prepended once, not used as join separator)
-  - retrieve_for_patient() no-query branch now implemented (returns all patient vectors)
-"""
 import numpy as np
 from typing import List, Dict, Any, Optional
 import logging

@@ -1,7 +1,3 @@
-"""
-Security utilities for password hashing and verification.
-Fixed: passwords over 72 bytes raise ValueError (bcrypt hard limit).
-"""
 import bcrypt
 
 

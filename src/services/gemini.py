@@ -1,8 +1,3 @@
-"""
-Google Gemini API service.
-Fixed: generate_content() is synchronous — wrapped in asyncio.to_thread()
-       so it no longer blocks the FastAPI event loop.
-"""
 import asyncio
 import google.generativeai as genai
 from PIL import Image

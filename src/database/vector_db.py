@@ -1,7 +1,3 @@
-"""
-FAISS vector database for semantic similarity search.
-Fixed: deletion now works correctly using a shadow numpy store.
-"""
 import faiss
 import numpy as np
 from typing import List, Dict, Any, Optional

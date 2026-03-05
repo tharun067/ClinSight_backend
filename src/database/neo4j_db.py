@@ -1,9 +1,3 @@
-"""
-Neo4j graph database connection for medical knowledge representation.
-Fixed: max_depth validated as int, Cypher uses string formatting only on
-       structural (integer) values — not user-supplied strings.
-"""
-
 from neo4j import AsyncGraphDatabase, AsyncDriver
 from typing import Optional, List, Dict, Any
 import logging

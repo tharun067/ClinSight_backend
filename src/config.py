@@ -1,8 +1,3 @@
-"""
-Configuration management using Pydantic Settings.
-Environment variables override default values.
-"""
-
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 from typing import List

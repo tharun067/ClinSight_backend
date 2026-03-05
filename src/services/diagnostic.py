@@ -1,8 +1,3 @@
-"""
-Diagnostic service — orchestrates all AI components.
-Fixed: _save_diagnostic_report now stores the requesting physician's UUID,
-       not the patient UUID, in the generated_for_uuid column.
-"""
 from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
