@@ -27,13 +27,6 @@ class Settings(BaseSettings):
     )
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-
-    # PostgreSQL
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = Field(..., description="PostgreSQL password")
-    POSTGRES_DB: str = "clinsight_db"
     
     DATABASE_URL: str = Field(default="", description="Full database URL for production")
 
@@ -41,12 +34,6 @@ class Settings(BaseSettings):
     def SQLALCHEMY_DATABASE_URL(self) -> str:
         if self.DATABASE_URL:
             return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-        
-        return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:"
-            f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
 
     # Neo4j
     NEO4J_URI: str = "neo4j+s://77ff0dfd.databases.neo4j.io"
