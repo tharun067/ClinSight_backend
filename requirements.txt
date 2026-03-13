@@ -1,5 +1,6 @@
 # ─── Web Framework (Backend) ──────────────────────────────────────────────────
 fastapi==0.115.0
+orjson==3.10.15
 uvicorn[standard]==0.32.0
 python-multipart==0.0.12
 

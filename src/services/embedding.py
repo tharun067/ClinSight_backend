@@ -1,10 +1,8 @@
 import asyncio
-import torch
-from transformers import AutoTokenizer, AutoModel
-from PIL import Image
 import numpy as np
 import warnings
-from typing import List, Union, Optional
+from collections import OrderedDict
+from typing import List, Union, Optional, Dict
 import logging
 
 from src.config import settings
@@ -19,6 +17,11 @@ class ServiceNotReadyError(RuntimeError):
 
 class EmbeddingService:
     def __init__(self):
+        self._torch = None
+        self._pil_image = None
+        self._text_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+
+        torch = self._get_torch()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Embedding service using device: {self.device}")
         self.text_tokenizer = None
@@ -28,8 +31,39 @@ class EmbeddingService:
         self._init_text_model()
         self._init_image_model()
 
+    def _get_torch(self):
+        if self._torch is None:
+            import torch
+
+            self._torch = torch
+        return self._torch
+
+    def _get_pil_image(self):
+        if self._pil_image is None:
+            from PIL import Image
+
+            self._pil_image = Image
+        return self._pil_image
+
+    def _get_cached_text_embedding(self, text: str) -> Optional[np.ndarray]:
+        cached = self._text_cache.get(text)
+        if cached is None:
+            return None
+
+        self._text_cache.move_to_end(text)
+        return cached.copy()
+
+    def _store_cached_text_embedding(self, text: str, embedding: np.ndarray) -> None:
+        self._text_cache[text] = embedding.astype("float32", copy=True)
+        self._text_cache.move_to_end(text)
+        while len(self._text_cache) > settings.EMBEDDING_CACHE_SIZE:
+            self._text_cache.popitem(last=False)
+
     def _init_text_model(self):
         try:
+            torch = self._get_torch()
+            from transformers import AutoModel, AutoTokenizer
+
             logger.info(f"Loading text model: {settings.TEXT_EMBEDDING_MODEL}")
             self.text_tokenizer = AutoTokenizer.from_pretrained(settings.TEXT_EMBEDDING_MODEL)
             self.text_model = AutoModel.from_pretrained(settings.TEXT_EMBEDDING_MODEL)
@@ -76,20 +110,37 @@ class EmbeddingService:
         if isinstance(texts, str):
             texts = [texts]
 
-        embeddings_list = []
-        with torch.no_grad():
-            for i in range(0, len(texts), settings.EMBEDDING_BATCH_SIZE):
-                batch = texts[i : i + settings.EMBEDDING_BATCH_SIZE]
-                encoded = self.text_tokenizer(
-                    batch, padding=True, truncation=True, max_length=512, return_tensors="pt"
-                ).to(self.device)
-                outputs = self.text_model(**encoded)
-                # CLS-token embedding
-                emb = outputs.last_hidden_state[:, 0, :]
-                emb = torch.nn.functional.normalize(emb, p=2, dim=1)
-                embeddings_list.append(emb.cpu().numpy())
+        cached_results: Dict[int, np.ndarray] = {}
+        uncached_indices: List[int] = []
+        uncached_texts: List[str] = []
+        for index, text in enumerate(texts):
+            cached = self._get_cached_text_embedding(text)
+            if cached is not None:
+                cached_results[index] = cached
+            else:
+                uncached_indices.append(index)
+                uncached_texts.append(text)
 
-        return np.vstack(embeddings_list)
+        computed_embeddings = []
+        if uncached_texts:
+            torch = self._get_torch()
+            with torch.no_grad():
+                for i in range(0, len(uncached_texts), settings.EMBEDDING_BATCH_SIZE):
+                    batch = uncached_texts[i : i + settings.EMBEDDING_BATCH_SIZE]
+                    encoded = self.text_tokenizer(
+                        batch, padding=True, truncation=True, max_length=512, return_tensors="pt"
+                    ).to(self.device)
+                    outputs = self.text_model(**encoded)
+                    emb = outputs.last_hidden_state[:, 0, :]
+                    emb = torch.nn.functional.normalize(emb, p=2, dim=1)
+                    computed_embeddings.append(emb.cpu().numpy().astype("float32"))
+
+            computed_array = np.vstack(computed_embeddings)
+            for index, text, embedding in zip(uncached_indices, uncached_texts, computed_array):
+                self._store_cached_text_embedding(text, embedding)
+                cached_results[index] = embedding
+
+        return np.vstack([cached_results[i] for i in range(len(texts))])
 
     def embed_image(self, image_paths: Union[str, List[str]]) -> np.ndarray:
         """
@@ -103,11 +154,13 @@ class EmbeddingService:
         if isinstance(image_paths, str):
             image_paths = [image_paths]
 
+        torch = self._get_torch()
+        image_module = self._get_pil_image()
         embeddings_list = []
         with torch.no_grad():
             for img_path in image_paths:
                 try:
-                    image = Image.open(img_path).convert("RGB")
+                    image = image_module.open(img_path).convert("RGB")
                     image_tensor = self.image_processor(image).unsqueeze(0).to(self.device)
                     features = self.image_model.encode_image(image_tensor)
                     features = torch.nn.functional.normalize(features, p=2, dim=1)
@@ -170,6 +223,10 @@ def get_embedding_service() -> EmbeddingService:
     return _embedding_service
 
 
+def embedding_service_ready() -> bool:
+    return _embedding_service is not None
+
+
 async def init_embedding_service():
     global _embedding_service
     # Run blocking model loading in a thread so it doesn't block the event loop
@@ -184,7 +241,8 @@ async def close_embedding_service():
             del _embedding_service.text_model
         if _embedding_service.image_model:
             del _embedding_service.image_model
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        torch_module = getattr(_embedding_service, "_torch", None)
+        if torch_module and torch_module.cuda.is_available():
+            torch_module.cuda.empty_cache()
         _embedding_service = None
     logger.info("Embedding service closed")

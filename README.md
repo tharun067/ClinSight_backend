@@ -144,7 +144,26 @@ python -m src.main --reload
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+For Render free tier, prefer a single worker so the ML models are only loaded once per container:
+
+```bash
+uvicorn src.main:app --host 0.0.0.0 --port $PORT --workers 1
+```
+
 Set `DEBUG=True` in `.env` to enable detailed error responses and auto-reload by default.
+
+## Render Optimizations
+
+The backend now includes a few deployment-oriented defaults that are useful on small Render instances:
+
+- ORJSON is used as the default response serializer.
+- GZip compression is enabled for larger responses.
+- Request logging is reduced in production unless a request is slow or fails.
+- PostgreSQL pool defaults are smaller to reduce idle memory usage.
+- Embedding model imports are deferred until the embedding service initializes.
+- Repeated text embeddings are cached in-memory with a bounded LRU-style cache.
+
+These can be tuned with environment variables such as `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `SLOW_REQUEST_LOG_MS`, `GZIP_MINIMUM_SIZE`, and `EMBEDDING_CACHE_SIZE`.
 
 ---
 

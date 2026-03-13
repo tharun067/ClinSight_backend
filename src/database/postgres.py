@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
 engine: AsyncEngine = create_async_engine(
     settings.SQLALCHEMY_DATABASE_URL,
     echo=False,
-    pool_size=20,
-    max_overflow=40,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
     pool_pre_ping=True,
+    pool_use_lifo=True,
 )
 
 # async session factory

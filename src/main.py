@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse, ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import logging, time, os, traceback
@@ -8,7 +9,12 @@ import logging, time, os, traceback
 from src.config import settings
 from src.database.postgres import init_db, close_db
 from src.database.vector_db import init_vector_db, close_vector_db
-from src.services.embedding import init_embedding_service, close_embedding_service, ServiceNotReadyError
+from src.services.embedding import (
+    ServiceNotReadyError,
+    close_embedding_service,
+    embedding_service_ready,
+    init_embedding_service,
+)
 from src.routers import auth, patients, diagnostic, documents, imaging, labs, notes, audit
 
 # Dev mode: set DEBUG=True in .env, or pass --reload flag, or set CLINSIGHT_DEV_MODE=1
@@ -76,7 +82,10 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/api/docs",
     redoc_url="/api/redoc",
+    default_response_class=ORJSONResponse,
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=settings.GZIP_MINIMUM_SIZE)
 
 app.add_middleware(
     CORSMiddleware,
@@ -92,8 +101,22 @@ async def log_requests(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     ms = (time.time() - start) * 1000
-    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({ms:.1f}ms)")
-    response.headers["X-Process-Time-ms"] = f"{ms:.1f}"
+
+    if settings.ENABLE_REQUEST_TIMING_HEADER:
+        response.headers["X-Process-Time-ms"] = f"{ms:.1f}"
+
+    should_log = (
+        settings.DEBUG
+        or settings.LOG_ALL_REQUESTS
+        or response.status_code >= 500
+        or ms >= settings.SLOW_REQUEST_LOG_MS
+    )
+    if should_log:
+        logger_method = logger.warning if response.status_code >= 500 or ms >= settings.SLOW_REQUEST_LOG_MS else logger.info
+        logger_method(
+            f"{request.method} {request.url.path} -> {response.status_code} ({ms:.1f}ms)"
+        )
+
     return response
 
 
@@ -131,8 +154,13 @@ app.include_router(audit.router,      prefix="/api/audit",      tags=["Audit Log
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "healthy", "app": settings.APP_NAME, "version": settings.APP_VERSION,
-            "dev_mode": _DEV_MODE}
+    return {
+        "status": "healthy",
+        "app": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "dev_mode": _DEV_MODE,
+        "embeddings_ready": embedding_service_ready(),
+    }
 
 
 @app.get("/api/debug/logs", tags=["Debug"])

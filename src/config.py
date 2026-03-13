@@ -2,7 +2,6 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 from typing import List
 import os
-import secrets
 
 
 class Settings(BaseSettings):
@@ -13,6 +12,10 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
+    LOG_ALL_REQUESTS: bool = False
+    SLOW_REQUEST_LOG_MS: int = 750
+    ENABLE_REQUEST_TIMING_HEADER: bool = True
+    GZIP_MINIMUM_SIZE: int = 1000
 
     # Security — SECRET_KEY has NO default; must be set via env var
     SECRET_KEY: str = Field(
@@ -22,13 +25,26 @@ class Settings(BaseSettings):
     )
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    
+
     DATABASE_URL: str = Field(default="", description="Full database URL for production")
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = Field(default="", description="PostgreSQL password")
+    POSTGRES_DB: str = "clinsight_db"
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
 
     @property
     def SQLALCHEMY_DATABASE_URL(self) -> str:
         if self.DATABASE_URL:
             return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+        return (
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
 
     # Neo4j
     NEO4J_URI: str = "neo4j+s://77ff0dfd.databases.neo4j.io"
@@ -70,6 +86,7 @@ class Settings(BaseSettings):
     )
     TEXT_EMBEDDING_MODEL: str = "dmis-lab/biobert-v1.1"
     EMBEDDING_BATCH_SIZE: int = 32
+    EMBEDDING_CACHE_SIZE: int = 256
 
     # Retrieval
     TOP_K_VECTOR: int = 5
@@ -79,7 +96,7 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:5173",
-        "https://clinsight1.netlify.app"
+        "https://clinsight1.netlify.app",
     ]
 
     ROLES: List[str] = [
